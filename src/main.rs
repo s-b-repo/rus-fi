@@ -147,7 +147,7 @@ fn main() {
 
         // Build the main application window
         let window = ApplicationWindow::new(app);
-        window.set_title("LoFi Music Player (Audio Only) via yt-dlp");
+        window.set_title("rus-fi");
         window.set_default_size(800, 400);
 
         // Main vertical box that holds:
