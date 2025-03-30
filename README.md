@@ -5,6 +5,10 @@
 
 **RusFi** is a minimal Rust + GTK + GStreamer application that plays the audio-only live LoFi Girl YouTube stream. It calls out to [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) to retrieve the direct audio URL and then streams it via GStreamer. The GUI includes:
 
+**credits**
+
+# https://www.youtube.com/@LofiGirl
+
 - **control buttons**: Play, Pause, Resume, Rewind, and Stop  
 - A **Volume Slider**  
 - A whimsical **equalizer** visualization that displays random bars
