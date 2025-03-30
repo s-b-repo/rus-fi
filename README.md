@@ -209,13 +209,11 @@ A window should appear with:
 
 Click **Play** to start the **LoFi Girl** stream audio.
 
-- **7 buttons**:  
+- **5 buttons**:  
   - **Play**: Starts the audio  
   - **Pause**: Pauses playback  
   - **Resume**: Resumes from pause  
   - **Rewind**: Tries seeking back 10 seconds (if DVR is supported)  
-  - **FastFwd**: Seeks forward 10 seconds (if DVR is supported)  
-  - **Skip Live**: Attempts to jump to the live edge  
   - **Stop**: Sets the pipeline to Null (completely stops playback)  
 
 - **Volume slider** (0.0 → 1.0)  
