@@ -1,6 +1,6 @@
 use gtk::prelude::*;
 use gtk::{Application, ApplicationWindow, Button, Orientation, Scale, DrawingArea};
-use glib::{Continue};
+use glib::{MainContext};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -9,18 +9,22 @@ use std::process::Command;
 use rand::Rng;
 use gstreamer::prelude::ObjectExt;
 
+
 // The original LoFi Girl YouTube URL:
 const LOFI_STREAM_URL: &str = "https://www.youtube.com/watch?v=jfKfPfyJRdk";
 
 // Number of random bars in our fake EQ visualization:
 const NUM_EQ_BARS: usize = 15;
 
-// Labels for the 7 control buttons:
+// Labels for the control buttons:
 const LABEL_PLAY: &str = "Play";
 const LABEL_PAUSE: &str = "Pause";
 const LABEL_RESUME: &str = "Resume";
 const LABEL_REWIND: &str = "Rewind";
 const LABEL_STOP: &str = "Stop";
+
+const LABEL_CHANGE_COLOR: &str = "Change Color";
+const LABEL_CHANGE_PATTERN: &str = "Change Pattern";
 
 // A small helper struct to hold our GStreamer pipeline
 struct Player {
@@ -29,21 +33,21 @@ struct Player {
 
 impl Player {
     fn new() -> Self {
-        // Create a "playbin" element via the new builder API.
-        // If your version doesn't provide .build(), remove that and just do
-        // ElementFactory::make("playbin", Some("my-playbin")) or similar.
         let pipeline = gst::ElementFactory::make("playbin")
         .name("my-playbin")
         .build();
+        pipeline
+        .clone()
+        .expect("Failed to clone pipeline element.")
+        .set_state(gst::State::Null)
+        .expect("Unable to set pipeline to Null state");
 
-        // Make sure it's in Null state initially:
-        pipeline.clone().expect("REASON").set_state(gst::State::Null).unwrap();
-
-        Self { pipeline: pipeline.expect("REASON") }
+        Self {
+            pipeline: pipeline.expect("Failed to create pipeline element."),
+        }
     }
 
     fn set_uri(&self, uri: &str) {
-        // set_property returns (), so no .expect(...) or .ok() needed
         self.pipeline.set_property("uri", uri);
     }
 
@@ -77,7 +81,6 @@ impl Player {
         let _ = self.seek(new_pos);
     }
 
-
     fn seek(&self, position: gst::ClockTime) -> bool {
         self.pipeline
         .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, position)
@@ -104,9 +107,7 @@ fn get_direct_audio_url(youtube_link: &str) -> Option<String> {
         return None;
     }
 
-    // The output should be a direct media URL in plain text:
     let stdout_str = String::from_utf8_lossy(&output.stdout);
-    // Usually it's just one line. Trim it and return as a String.
     let direct_url = stdout_str.trim().to_string();
 
     if direct_url.is_empty() {
@@ -157,7 +158,7 @@ fn main() {
         vbox.set_vexpand(true);
         vbox.set_hexpand(true);
 
-        // Create a horizontal box for the 7 buttons
+        // Create a horizontal box for the buttons
         let hbox_buttons = gtk::Box::new(Orientation::Horizontal, 5);
         hbox_buttons.set_hexpand(true);
 
@@ -168,12 +169,16 @@ fn main() {
             btn
         };
 
-        // Create our 7 buttons
+        // Create our media control buttons
         let btn_play = make_button(LABEL_PLAY);
         let btn_pause = make_button(LABEL_PAUSE);
         let btn_resume = make_button(LABEL_RESUME);
         let btn_rewind = make_button(LABEL_REWIND);
         let btn_stop = make_button(LABEL_STOP);
+
+        // Create our new feature buttons
+        let btn_change_color = make_button(LABEL_CHANGE_COLOR);
+        let btn_change_pattern = make_button(LABEL_CHANGE_PATTERN);
 
         // Add them all horizontally
         hbox_buttons.pack_start(&btn_play, true, true, 0);
@@ -181,6 +186,10 @@ fn main() {
         hbox_buttons.pack_start(&btn_resume, true, true, 0);
         hbox_buttons.pack_start(&btn_rewind, true, true, 0);
         hbox_buttons.pack_start(&btn_stop, true, true, 0);
+
+        // Add the new buttons
+        hbox_buttons.pack_start(&btn_change_color, true, true, 0);
+        hbox_buttons.pack_start(&btn_change_pattern, true, true, 0);
 
         // Volume slider (horizontal); Range: 0.0 to 1.0
         let volume_scale = Scale::new(Orientation::Horizontal, None::<&gtk::Adjustment>);
@@ -202,7 +211,9 @@ fn main() {
         // Put the vbox in the window
         window.add(&vbox);
 
-        // Clone references to player for each callback
+        // ----------------------------
+        // Wire up button callbacks
+        // ----------------------------
         {
             let player_play = Arc::clone(&player);
             btn_play.connect_clicked(move |_| {
@@ -254,12 +265,32 @@ fn main() {
             });
         }
 
-        // Random “equalizer” effect: We'll store an array of bar heights and update ~10 times/sec
+        // ----------------------------
+        // Visualization logic
+        // ----------------------------
+        // We'll store an array of bar heights and periodically update them.
         let eq_bar_heights = Arc::new(Mutex::new(vec![0.0; NUM_EQ_BARS]));
+
+        // Patterns: 0 = random, 1 = sin-wave, 2 = “breathing”
+        let pattern_index = Arc::new(Mutex::new(0));
+        let time_phase = Arc::new(Mutex::new(0.0));
+
+        // Define color schemes as vectors of RGB tuples.
+        // You can add as many sets and as many colors as you want in each set.
+        let color_schemes: Vec<Vec<(f64, f64, f64)>> = vec![
+            vec![(1.0, 0.0, 0.0)], // All red
+                         vec![(0.0, 1.0, 0.0)], // All green
+                         vec![(0.0, 0.0, 1.0)], // All blue
+                         vec![(1.0, 1.0, 0.0), (1.0, 0.0, 1.0), (0.0, 1.0, 1.0)], // cycle among Y, M, C
+        ];
+        let color_index = Arc::new(Mutex::new(0));
 
         // Connect a draw handler for eq_area
         {
             let eq_bar_heights = Arc::clone(&eq_bar_heights);
+            let color_schemes = color_schemes.clone();
+            let color_index = Arc::clone(&color_index);
+
             eq_area.connect_draw(move |area, cr| {
                 let width = area.allocated_width() as f64;
                 let height = area.allocated_height() as f64;
@@ -270,9 +301,17 @@ fn main() {
                     0.0
                 };
 
+                // Retrieve the current color set
+                let color_idx = *color_index.lock().unwrap() % color_schemes.len();
+                let current_scheme = &color_schemes[color_idx];
+
                 // Retrieve the current bars
                 if let Ok(bars) = eq_bar_heights.lock() {
                     for (i, &bar_val) in bars.iter().enumerate() {
+                        // pick color for this bar
+                        let (r, g, b) = current_scheme[i % current_scheme.len()];
+                        cr.set_source_rgb(r, g, b);
+
                         let x = i as f64 * bar_width;
                         let bar_height = bar_val * height;
                         let y = height - bar_height;
@@ -290,18 +329,73 @@ fn main() {
         {
             let eq_area_clone = eq_area.clone();
             let eq_bar_heights_clone = Arc::clone(&eq_bar_heights);
-            glib::timeout_add_local(Duration::from_millis(100), move || {
-                if let Ok(mut bars) = eq_bar_heights_clone.lock() {
-                    for bar in bars.iter_mut() {
-                        *bar = rand::thread_rng().gen_range(0.0..1.0);
+            let pattern_index_clone = Arc::clone(&pattern_index);
+            let time_phase_clone = Arc::clone(&time_phase);
+
+            MainContext::default().spawn_local(async move {
+                loop {
+                    {
+                        let mut bars = eq_bar_heights_clone.lock().unwrap();
+                        let mut t = time_phase_clone.lock().unwrap();
+                        *t += 0.1; // increment our “time”
+
+                        let idx = *pattern_index_clone.lock().unwrap();
+                        match idx {
+                            0 => {
+                                // Random pattern
+                                for bar in bars.iter_mut() {
+                                    *bar = rand::thread_rng().gen_range(0.0..1.0);
+                                }
+                            }
+                            1 => {
+                                // Sin-wave pattern
+                                for (i, bar) in bars.iter_mut().enumerate() {
+                                    *bar = 0.5 + 0.5 * ((*t + i as f64 * 0.3).sin());
+                                }
+                            }
+                            2 => {
+                                // “Breathing” pattern: all bars the same
+                                let val = 0.5 + 0.5 * (t.sin());
+                                for bar in bars.iter_mut() {
+                                    *bar = val;
+                                }
+                            }
+                            _ => {} // add more patterns if you want
+                        }
                     }
+
+                    eq_area_clone.queue_draw();
+                    // Sleep ~100ms
+                    glib::timeout_future(Duration::from_millis(100)).await;
                 }
-                eq_area_clone.queue_draw();
-                Continue(true)
             });
         }
 
-        // Show the window and all children
+        // ----------------------------
+        // “Change Color” button
+        // ----------------------------
+        {
+            let color_index = Arc::clone(&color_index);
+            btn_change_color.connect_clicked(move |_| {
+                let mut idx = color_index.lock().unwrap();
+                *idx = (*idx + 1) % 9999; // just increment so we rotate through color_schemes
+            });
+        }
+
+        // ----------------------------
+        // “Change Pattern” button
+        // ----------------------------
+        {
+            let pattern_index = Arc::clone(&pattern_index);
+            btn_change_pattern.connect_clicked(move |_| {
+                let mut idx = pattern_index.lock().unwrap();
+                // We have 3 patterns in the switch: 0, 1, 2
+                // Increase to cycle among them
+                *idx = (*idx + 1) % 3;
+            });
+        }
+
+        // Finally, show the window and all children
         window.show_all();
     });
 
