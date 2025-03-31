@@ -68,6 +68,15 @@ cargo --version
   sudo apt update
   sudo apt install yt-dlp
   ```
+- **debian kali**:  
+   ```
+    sudo apt update
+    sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev git meson ninja-build
+   sudo apt install libsoup2.4-dev libnice-dev libopenjp2-7-dev libmicrodns-dev libssl-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+  git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad.git
+  cd gst-plugins-bad
+  sudo ninja -C build install
+```
 
 - **Fedora**:  
   ```
