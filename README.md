@@ -207,7 +207,7 @@ source ~/.rc
 Once installed, you can run from any terminal by typing:
 
 ```
-rusfi
+lofi_suicidalteddy
 ```
 
 A window should appear with:
